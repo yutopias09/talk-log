@@ -42,6 +42,11 @@ export function fmtDuration(minutes: number): string {
 }
 
 export function fmtRange(start: string, end: string): string {
+  const startYear = start.slice(0, 4);
+  const endYear = end.slice(0, 4);
+  if (startYear !== endYear) {
+    return `${startYear}年${fmtDateJP(start)} 〜 ${endYear}年${fmtDateJP(end)}`;
+  }
   return `${fmtDateJP(start)} 〜 ${fmtDateJP(end)}`;
 }
 

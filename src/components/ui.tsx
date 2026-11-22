@@ -213,7 +213,7 @@ export function SplitBar({ a, b, aLabel, bLabel }: { a: number; b: number; aLabe
 export function PersonChip({ name, who }: { name: string; who: "a" | "b" }) {
   return (
     <span className="person-chip" title={name}>
-      <span className={`person-dot ${who}`}>{Array.from(name)[0] || (who === "a" ? "A" : "B")}</span>
+      <span className={`person-dot ${who}`} aria-hidden="true">{Array.from(name)[0] || (who === "a" ? "A" : "B")}</span>
       <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</span>
     </span>
   );

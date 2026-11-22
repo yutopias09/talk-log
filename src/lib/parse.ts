@@ -3,10 +3,16 @@ import type { DayStat, HourlyDay, Message, MsgType, ParsedChat } from "./types";
 const DATE_RE = /^(\d{4})\/(\d{2})\/(\d{2})\(.\)\s*$/;
 const MSG_RE = /^(\d{2}):(\d{2})\t([^\t]+)\t(.*)$/;
 
-/** Date lines without tabs/parentheses, e.g. `2025.12.06 土曜日` or `2025/12/06`. */
-const DATE_SPACED_RE = /^(\d{4})[./-](\d{2})[./-](\d{2})(?:[ \t]+.*)?$/;
-/** Message lines without tabs, e.g. `21:09 名前 本文`. */
-const MSG_SPACED_RE = /^(\d{2}):(\d{2})[ \t]+(\S+)(?:[ \t]+(.*))?$/;
+/** Date lines, with or without a weekday: `2023/07/31(月)`, `2025.12.06 土曜日`. */
+const DATE_LOOSE_RE = /^(\d{4})[./-](\d{2})[./-](\d{2})(?:\(.\)|[ \t]+.*)?\s*$/;
+/** `午後05:40<TAB>名前<TAB>本文` (12-hour clock, tab separated). */
+const MSG_JP_TAB_RE = /^(午前|午後)\s*(\d{1,2}):(\d{2})\t([^\t]+)\t(.*)$/;
+/** `05:40<TAB>名前<TAB>本文` */
+const MSG_TAB_RE = /^(\d{1,2}):(\d{2})\t([^\t]+)\t(.*)$/;
+/** `午後5:40 名前 本文` (12-hour clock, space separated). */
+const MSG_JP_SPACED_RE = /^(午前|午後)\s*(\d{1,2}):(\d{2})[ \t]+(\S+)(?:[ \t]+(.*))?$/;
+/** `21:09 名前 本文` */
+const MSG_SPACED_RE = /^(\d{1,2}):(\d{2})[ \t]+(\S+)(?:[ \t]+(.*))?$/;
 
 /** Chat notices that should not count as messages. */
 const SYSTEM_NOTICE_RE =
@@ -301,38 +307,68 @@ function parseStandard(text: string, acc: Accumulator): ParsedChat | null {
   return acc.build(titleFromText(text));
 }
 
+function to24Hour(period: string | undefined, hourText: string, minuteText: string) {
+  let hour = parseInt(hourText, 10);
+  const minute = parseInt(minuteText, 10);
+  if (Number.isNaN(hour) || Number.isNaN(minute) || minute < 0 || minute > 59) return null;
+  if (period === "午後" && hour < 12) hour += 12;
+  if (period === "午前" && hour === 12) hour = 0;
+  if (hour < 0 || hour > 23) return null;
+  return {
+    time: `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`,
+    hour,
+    minute,
+  };
+}
+
 /**
- * Exports without tabs or parentheses, e.g.:
- *   2025.12.06 土曜日
- *   21:09 名前 本文
- * The sender is the first token after the time.
+ * Line-based fallback for export variants:
+ *  - tab separated with a 12-hour clock: 午後05:40\t名前\t本文
+ *  - tab separated with a 24-hour clock: 05:40\t名前\t本文
+ *  - space separated: 21:09 名前 本文 / 午後5:40 名前 本文
+ *  - dates like 2023/07/31(月) or 2025.12.06 土曜日
  */
-function parseSpaced(text: string, acc: Accumulator): ParsedChat | null {
+function parseLoose(text: string, acc: Accumulator): ParsedChat | null {
   const lines = text.split(/\r\n|\r|\n/);
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trimEnd();
     if (line.length === 0) continue;
 
-    const dm = DATE_SPACED_RE.exec(line);
+    const dm = DATE_LOOSE_RE.exec(line);
     if (dm) {
       acc.setDate(dm);
       continue;
     }
+    if (acc.currentDate === null) continue;
 
-    const mm = MSG_SPACED_RE.exec(line);
-    if (mm && acc.currentDate !== null) {
-      const content = mm[4];
-      // Lines like "21:12 Nutsがメッセージの送信を取り消しました" are notices,
-      // not messages from a participant.
-      if (!content || SYSTEM_NOTICE_RE.test(content)) continue;
-      acc.push(
-        `${mm[1]}:${mm[2]}`,
-        parseInt(mm[1], 10),
-        parseInt(mm[2], 10),
-        mm[3],
-        content,
-      );
+    let time: { time: string; hour: number; minute: number } | null = null;
+    let sender = "";
+    let content: string | undefined;
+
+    let m = MSG_JP_TAB_RE.exec(line);
+    if (m) {
+      time = to24Hour(m[1], m[2], m[3]);
+      sender = m[4];
+      content = m[5];
+    } else if ((m = MSG_TAB_RE.exec(line))) {
+      time = to24Hour(undefined, m[1], m[2]);
+      sender = m[3];
+      content = m[4];
+    } else if ((m = MSG_JP_SPACED_RE.exec(line))) {
+      time = to24Hour(m[1], m[2], m[3]);
+      sender = m[4];
+      content = m[5];
+    } else if ((m = MSG_SPACED_RE.exec(line))) {
+      time = to24Hour(undefined, m[1], m[2]);
+      sender = m[3];
+      content = m[4];
     }
+
+    if (!time || !sender) continue;
+    // Lines like "21:12 Nutsがメッセージの送信を取り消しました" are notices,
+    // not messages from a participant.
+    if (!content || SYSTEM_NOTICE_RE.test(content)) continue;
+    acc.push(time.time, time.hour, time.minute, sender, content);
   }
 
   return acc.build(titleFromText(text));
@@ -346,6 +382,8 @@ function parseSpaced(text: string, acc: Accumulator): ParsedChat | null {
 export function parseLineChat(input: string): ParsedChat | null {
   const text = normalizeSource(input);
   const standard = parseStandard(text, createAccumulator());
+  // Prefer the canonical tab parser when it found messages; the loose parser is
+  // only needed for the 12-hour and space-separated variants.
   if (standard) return standard;
-  return parseSpaced(text, createAccumulator());
+  return parseLoose(text, createAccumulator());
 }
