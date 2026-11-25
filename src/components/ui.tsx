@@ -2,6 +2,7 @@ import type { CSSProperties, ReactNode } from "react";
 import { RANGE_OPTIONS } from "../lib/analytics";
 import type { RangeKey } from "../lib/types";
 import { Icon, type IconName } from "./Icon";
+import { useGlassSlider } from "./GlassSlider";
 
 export function Card({
   children,
@@ -89,14 +90,23 @@ export function Segmented<T extends string>({
   ariaLabel: string;
   small?: boolean;
 }) {
+  const glass = useGlassSlider<T>({ value, onSelect: onChange });
   return (
-    <div className={`segmented${small ? " sm" : ""}`} role="group" aria-label={ariaLabel}>
+    <div
+      ref={glass.barRef}
+      onPointerDown={glass.onPointerDown}
+      className={`segmented glass-bar${small ? " sm" : ""}`}
+      role="group"
+      aria-label={ariaLabel}
+    >
+      <span ref={glass.pillRef} className="glass-pill" aria-hidden="true" />
       {options.map((o) => (
         <button
           key={o.key}
           type="button"
+          data-glass-key={o.key}
           aria-pressed={o.key === value}
-          onClick={() => onChange(o.key)}
+          onClick={() => glass.onTap(o.key)}
         >
           {o.label}
         </button>

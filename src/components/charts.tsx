@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent, ReactNode, RefObject } from "react";
+import { vibrate } from "../lib/feedback";
 
 export function useElementWidth<T extends HTMLElement>(): [RefObject<T>, number] {
   const ref = useRef<T>(null);
@@ -36,10 +37,131 @@ function smoothPath(points: [number, number][]): string {
   return d;
 }
 
-export interface TrendPoint {
+export /**
+ * グラフを指でなぞったときの読み取り。
+ * - 横になぞると値を追いかけ、縦のスクロールはそのまま使える（touch-action: pan-y）
+ * - 押した瞬間から表示し、指を離しても少しのあいだ数字を残す
+ * - 値が切り替わるたびに軽く振動（対応端末のみ）
+ */
+function useScrub(count: number, indexAt: (px: number) => number) {
+  const [hover, setHover] = useState<number | null>(null);
+  const downRef = useRef(false);
+  const timerRef = useRef<number | undefined>(undefined);
+  const lastRef = useRef<number | null>(null);
+
+  const update = (e: ReactPointerEvent<SVGSVGElement>) => {
+    if (count === 0) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const idx = Math.min(count - 1, Math.max(0, indexAt((e.clientX - rect.left) / rect.width)));
+    if (idx !== lastRef.current) {
+      if (lastRef.current !== null && e.pointerType !== "mouse") vibrate(4);
+      lastRef.current = idx;
+      setHover(idx);
+    }
+  };
+  const clearLater = (ms: number) => {
+    window.clearTimeout(timerRef.current);
+    timerRef.current = window.setTimeout(() => {
+      lastRef.current = null;
+      setHover(null);
+    }, ms);
+  };
+  useEffect(() => () => window.clearTimeout(timerRef.current), []);
+
+  const handlers = {
+    style: { touchAction: "pan-y" as const, cursor: "crosshair" },
+    onPointerDown: (e: ReactPointerEvent<SVGSVGElement>) => {
+      downRef.current = true;
+      window.clearTimeout(timerRef.current);
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId);
+      } catch {
+        /* ignore */
+      }
+      update(e);
+    },
+    onPointerMove: (e: ReactPointerEvent<SVGSVGElement>) => {
+      if (e.pointerType === "mouse" || downRef.current) update(e);
+    },
+    onPointerUp: (e: ReactPointerEvent<SVGSVGElement>) => {
+      downRef.current = false;
+      if (e.pointerType !== "mouse") clearLater(2600);
+    },
+    onPointerCancel: () => {
+      downRef.current = false;
+      clearLater(2600);
+    },
+    onPointerLeave: (e: ReactPointerEvent<SVGSVGElement>) => {
+      if (e.pointerType === "mouse") clearLater(0);
+    },
+  };
+  return { hover, handlers };
+}
+
+/** なぞった位置の数字を大きく見せる吹き出し（グラフの上に、はみ出さないように出す） */
+function ScrubReadout({
+  xPct,
+  title,
+  value,
+  unit,
+  rows,
+  note,
+}: {
+  xPct: number;
+  title: ReactNode;
+  value: string;
+  unit?: string;
+  rows?: { label: string; value: string; color?: string }[];
+  note?: ReactNode;
+}) {
+  // 端に寄ったときは吹き出しの向きを変えて、画面からはみ出さないようにする
+  const align = xPct < 22 ? "start" : xPct > 78 ? "end" : "center";
+  const tx = align === "start" ? "-12%" : align === "end" ? "-88%" : "-50%";
+  // ふだんはグラフの上に出し、上が画面の外にはみ出すときはグラフの中に出す
+  const boxRef = useRef<HTMLDivElement>(null);
+  const [inside, setInside] = useState(false);
+  useLayoutEffect(() => {
+    const el = boxRef.current;
+    const wrap = el?.parentElement;
+    if (!el || !wrap) return;
+    const need = el.offsetHeight + 12;
+    const next = wrap.getBoundingClientRect().top < need;
+    setInside((v) => (v === next ? v : next));
+  });
+  return (
+    <div
+      ref={boxRef}
+      className="chart-readout"
+      style={{ left: `${xPct}%`, transform: `translate(${tx}, ${inside ? "0.25rem" : "calc(-100% - 0.5rem)"})` }}
+    >
+      <div className="chart-readout-title">{title}</div>
+      <div className="chart-readout-value">
+        {value}
+        {unit && <span>{unit}</span>}
+      </div>
+      {rows && rows.length > 0 && (
+        <div className="chart-readout-rows">
+          {rows.map((r, i) => (
+            <span key={i}>
+              {r.color && <i style={{ background: r.color }} />}
+              {r.label} <b>{r.value}</b>
+            </span>
+          ))}
+        </div>
+      )}
+      {note && <div className="chart-readout-note">{note}</div>}
+    </div>
+  );
+}
+
+interface TrendPoint {
   label: string;
   value: number;
   detail?: string;
+  /** なぞったときに出す、くわしい日付など */
+  title?: string;
+  /** なぞったときに出す内訳（ふたりそれぞれの件数など） */
+  rows?: { label: string; value: string; color?: string }[];
 }
 
 interface AreaTrendProps {
@@ -50,6 +172,8 @@ interface AreaTrendProps {
   formatValue?: (v: number) => string;
   ariaLabel?: string;
   emptyText?: string;
+  /** 吹き出しの数字の単位 */
+  unit?: string;
 }
 
 export function AreaTrend({
@@ -60,10 +184,10 @@ export function AreaTrend({
   formatValue = (v) => v.toLocaleString("ja-JP"),
   ariaLabel,
   emptyText = "表示できるデータがありません",
+  unit = "件",
 }: AreaTrendProps) {
   const [ref, width] = useElementWidth<HTMLDivElement>();
   const uid = useId().replace(/:/g, "");
-  const [hover, setHover] = useState<number | null>(null);
 
   const pad = { top: 16, right: 12, bottom: 26, left: 44 };
   const w = Math.max(width, 280);
@@ -89,17 +213,10 @@ export function AreaTrend({
     };
   }, [data, innerW, innerH, pad.top, pad.left]);
 
-  const onMove = useCallback(
-    (e: ReactPointerEvent<SVGSVGElement>) => {
-      if (data.length === 0) return;
-      const rect = e.currentTarget.getBoundingClientRect();
-      const px = ((e.clientX - rect.left) / rect.width) * w;
-      const t = (px - pad.left) / innerW;
-      const idx = Math.round(t * (data.length - 1));
-      setHover(Math.min(data.length - 1, Math.max(0, idx)));
-    },
-    [data.length, innerW, pad.left, w],
-  );
+  const { hover, handlers } = useScrub(data.length, (ratio) => {
+    const t = (ratio * w - pad.left) / innerW;
+    return Math.round(t * (data.length - 1));
+  });
 
   if (data.length === 0) {
     return <div className="chart-empty">{emptyText}</div>;
@@ -126,8 +243,7 @@ export function AreaTrend({
             Math.max(...data.map((d) => d.value)),
           )}`
         }
-        onPointerMove={onMove}
-        onPointerLeave={() => setHover(null)}
+        {...handlers}
       >
         <defs>
           <linearGradient id={`fill-${uid}`} x1="0" y1="0" x2="0" y2="1">
@@ -190,26 +306,34 @@ export function AreaTrend({
               x2={activePt[0]}
               y1={pad.top}
               y2={pad.top + innerH}
-              stroke="var(--border-strong)"
-              strokeDasharray="3 3"
+              stroke={color}
+              strokeOpacity="0.55"
+              strokeWidth="1.5"
             />
-            <circle cx={activePt[0]} cy={activePt[1]} r="5" fill={color} stroke="var(--surface)" strokeWidth="2.5" />
+            <circle cx={activePt[0]} cy={activePt[1]} r="11" fill={color} opacity="0.18" />
+            <circle cx={activePt[0]} cy={activePt[1]} r="6" fill={color} stroke="var(--surface)" strokeWidth="2.5" />
           </>
         )}
       </svg>
 
-      {active && activePt && (
-        <div
-          className="chart-tooltip"
-          style={{
-            left: `${(activePt[0] / w) * 100}%`,
-            top: `${(activePt[1] / height) * 100}%`,
-          }}
-        >
-          <div style={{ opacity: 0.75, fontSize: 10.5 }}>{active.label}</div>
-          <strong>{formatValue(active.value)}</strong>
-          {active.detail && <span style={{ opacity: 0.75 }}> {active.detail}</span>}
-        </div>
+      {active && activePt && hover !== null && (
+        <ScrubReadout
+          xPct={(activePt[0] / w) * 100}
+          title={active.title || active.label}
+          value={formatValue(active.value)}
+          unit={unit}
+          rows={active.rows}
+          note={
+            <>
+              {active.detail && <span>{active.detail}</span>}
+              {avg !== undefined && avg > 0 && (
+                <span>
+                  平均の{(active.value / avg).toFixed(1)}倍
+                </span>
+              )}
+            </>
+          }
+        />
       )}
     </div>
   );
@@ -223,6 +347,9 @@ interface BarsProps {
   formatValue?: (v: number) => string;
   ariaLabel?: string;
   highlight?: number;
+  unit?: string;
+  /** なぞったときの見出し（ラベルより詳しく出したいとき） */
+  titles?: string[];
 }
 
 export function BarSeries({
@@ -233,9 +360,10 @@ export function BarSeries({
   formatValue = (v) => v.toLocaleString("ja-JP"),
   ariaLabel,
   highlight,
+  unit = "件",
+  titles,
 }: BarsProps) {
   const [ref, width] = useElementWidth<HTMLDivElement>();
-  const [hover, setHover] = useState<number | null>(null);
   const w = Math.max(width, 280);
   const pad = { top: 14, right: 6, bottom: 24, left: 6 };
   const innerW = Math.max(10, w - pad.left - pad.right);
@@ -244,6 +372,8 @@ export function BarSeries({
   const step = innerW / Math.max(1, values.length);
   const barW = Math.max(3, Math.min(26, step * 0.62));
   const showEvery = values.length > 16 ? 3 : values.length > 10 ? 2 : 1;
+  const { hover, handlers } = useScrub(values.length, (ratio) => Math.floor((ratio * w - pad.left) / step));
+  const total = values.reduce((sum, v) => sum + v, 0);
 
   const active = hover !== null ? hover : highlight ?? null;
 
@@ -254,13 +384,7 @@ export function BarSeries({
         viewBox={`0 0 ${w} ${height}`}
         role="img"
         aria-label={ariaLabel || `棒グラフ。最大値 ${formatValue(max)}`}
-        onPointerMove={(e) => {
-          const rect = e.currentTarget.getBoundingClientRect();
-          const px = ((e.clientX - rect.left) / rect.width) * w;
-          const idx = Math.floor((px - pad.left) / step);
-          setHover(Math.min(values.length - 1, Math.max(0, idx)));
-        }}
-        onPointerLeave={() => setHover(null)}
+        {...handlers}
       >
         <line
           x1={pad.left}
@@ -300,17 +424,14 @@ export function BarSeries({
           );
         })}
       </svg>
-      {active !== null && (
-        <div
-          className="chart-tooltip"
-          style={{
-            left: `${((pad.left + active * step + step / 2) / w) * 100}%`,
-            top: `${((pad.top + innerH - Math.max(3, (values[active] / max) * innerH)) / height) * 100}%`,
-          }}
-        >
-          <div style={{ opacity: 0.75, fontSize: 10.5 }}>{labels[active]}</div>
-          <strong>{formatValue(values[active])}</strong>
-        </div>
+      {hover !== null && (
+        <ScrubReadout
+          xPct={((pad.left + hover * step + step / 2) / w) * 100}
+          title={titles?.[hover] ?? labels[hover]}
+          value={formatValue(values[hover])}
+          unit={unit}
+          note={total > 0 ? <span>全体の{Math.round((values[hover] / total) * 100)}%</span> : undefined}
+        />
       )}
     </div>
   );

@@ -32,7 +32,13 @@ export type IconName =
   | "refresh"
   | "heart"
   | "zap"
-  | "minus";
+  | "minus"
+  | "phone"
+  | "link"
+  | "gift"
+  | "book"
+  | "quote"
+  | "trash";
 
 const paths: Record<IconName, ReactElement> = {
   overview: (
@@ -176,6 +182,41 @@ const paths: Record<IconName, ReactElement> = {
   ),
   zap: <path d="M13 2 4.5 13.5H11L10 22l8.5-11.5H12Z" />,
   minus: <path d="M5 12h14" />,
+  phone: (
+    <path d="M6.6 3.5h2.6l1.4 4.2-1.9 1.3a11.7 11.7 0 0 0 6.3 6.3l1.3-1.9 4.2 1.4v2.6a2.1 2.1 0 0 1-2.3 2.1A16.8 16.8 0 0 1 4.5 5.8 2.1 2.1 0 0 1 6.6 3.5Z" />
+  ),
+  link: (
+    <>
+      <path d="M10 14a4.2 4.2 0 0 0 6 0l3.2-3.2a4.2 4.2 0 0 0-6-6L12 6" />
+      <path d="M14 10a4.2 4.2 0 0 0-6 0l-3.2 3.2a4.2 4.2 0 0 0 6 6L12 18" />
+    </>
+  ),
+  gift: (
+    <>
+      <rect x="3.5" y="8" width="17" height="4" rx="1.2" />
+      <path d="M5 12v8h14v-8M12 8v12" />
+      <path d="M12 8c-1.6-3.6-6-4-6-1.2C6 8 8 8 12 8Zm0 0c1.6-3.6 6-4 6-1.2C18 8 16 8 12 8Z" />
+    </>
+  ),
+  book: (
+    <>
+      <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5Z" />
+      <path d="M4 20.5A2.5 2.5 0 0 0 6.5 23H20v-5" />
+      <path d="M9 8h7" />
+    </>
+  ),
+  quote: (
+    <>
+      <path d="M5 11h4v6H4v-4.5C4 8.5 5.6 6.4 8.5 6" />
+      <path d="M15 11h4v6h-5v-4.5c0-4 1.6-6.1 4.5-6.5" />
+    </>
+  ),
+  trash: (
+    <>
+      <path d="M4 7h16M9.5 7V4.5h5V7" />
+      <path d="M6 7l1 13h10l1-13M10 11v6M14 11v6" />
+    </>
+  ),
 };
 
 interface IconProps extends SVGProps<SVGSVGElement> {
