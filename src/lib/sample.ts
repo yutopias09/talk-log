@@ -25,9 +25,11 @@ export function buildSampleChat(): string {
     ["最近ちょっと寂しいな", "会いたいね", "うん、会いたい", "来週どこか行こう？", "水族館とかどう？", "いいね！決定🐬"],
     ["仕事つかれたー", "おつかれさま！今日はもう休んで", "ありがとう。明日頑張る", "応援してるよ📣", "ありがとう、心強い", "おやすみ😴"],
     ["テスト勉強終わらない😭", "何のテスト？", "数学…", "教えようか？", "ほんと！？お願いします🙏", "任せて！"],
+    ["これ見て！ https://www.youtube.com/watch?v=talklog01", "めっちゃ笑った😂", "でしょ！", "今度ここ行かない？ https://tabelog.com/tokyo/A1301/A130101/13000001/", "おいしそう！行こう", "土曜でどう？"],
+    ["このカフェよさそう https://www.instagram.com/p/talklog02/", "かわいい〜！", "週末行こ☕", "行く！楽しみ"],
   ];
 
-  const start = new Date("2026-07-01T00:00:00");
+  const start = new Date("2025-06-01T00:00:00");
   const end = new Date("2026-11-19T00:00:00");
   const dayCount = Math.round((end.getTime() - start.getTime()) / 86400000) + 1;
 
@@ -57,6 +59,23 @@ export function buildSampleChat(): string {
         minute %= 60;
       }
       if (rand() > 0.45) speaker = speaker === a ? b : a;
+    }
+    // 夜に通話することもある
+    const callRoll = rand();
+    if (callRoll < 0.14 && hour < 23) {
+      const ch = Math.max(hour + 1, 21 + Math.floor(rand() * 2));
+      const caller = rand() > 0.45 ? b : a;
+      const stamp = `${String(Math.min(23, ch)).padStart(2, "0")}:${String(Math.floor(rand() * 59)).padStart(2, "0")}`;
+      if (callRoll < 0.025) {
+        lines.push(`${stamp}\t${caller}\t☎ 不在着信`);
+      } else {
+        const sec = Math.floor(120 + rand() * rand() * 7200);
+        const hh = Math.floor(sec / 3600);
+        const mm = Math.floor((sec % 3600) / 60);
+        const ss = sec % 60;
+        const dur = hh > 0 ? `${hh}:${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}` : `${mm}:${String(ss).padStart(2, "0")}`;
+        lines.push(`${stamp}\t${caller}\t☎ 通話時間 ${dur}`);
+      }
     }
   }
 

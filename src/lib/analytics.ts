@@ -72,16 +72,102 @@ const TOPIC_RES = TOPIC_DEFS.map(
 
 export const WEEKDAY_LABELS = ["日", "月", "火", "水", "木", "金", "土"];
 
-const WORD_RE = /[぀-ヿ一-鿿a-zA-Z0-9]{2,}/g;
-const EMOJI_RE = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}]/gu;
+// 絵文字1つ分（肌の色・異体字セレクタ・ZWJでつないだ合成絵文字もまとめて1つ）
+const EMOJI_RE = /\p{Extended_Pictographic}(?:️|[\u{1F3FB}-\u{1F3FF}]|‍\p{Extended_Pictographic}️?)*/gu;
 const HYPE_RE = /笑|ｗ|w{1,}|草|!|！|\?|？|♡|❤|ー{2,}/g;
 
+/** URL（言葉や絵文字の集計からは外す） */
+export const URL_RE = /https?:\/\/[^\s<>"'）)」』】\]]+/g;
+/** 通話の記録の行（☎ 通話時間 1:23 / ☎ 不在着信 など） */
+export const CALL_LINE_RE = /^\s*☎/;
+
+/** 集計用に、メッセージ本文からURLを除いたもの。通話の行は空にする */
+export function textForCounting(content: string): string {
+  if (CALL_LINE_RE.test(content)) return "";
+  return content.indexOf("http") >= 0 ? content.replace(URL_RE, " ") : content;
+}
+
+// 文字の種類ごとのかたまり（カタカナ／英数字／漢字＋ひらがな）
+const SCRIPT_RUN_RE = /[ァ-ヺー]+|[a-z0-9]+|[一-鿿々〆ヵヶぁ-ゖ]+/g;
+
+// 数えない言葉（あいづち・助詞・助動詞など、意味の薄いもの）
 const STOP_WORDS = new Set([
-  "これ", "それ", "あれ", "この", "その", "あの", "ここ", "そこ", "あそこ", "こう", "そう", "どう",
-  "まあ", "えー", "うん", "です", "ます", "した", "して", "いる", "ある", "から", "ので", "けど",
-  "でも", "だから", "そして", "また", "もう", "まだ", "なんか", "けっこう", "ちょっと", "今日",
-  "明日", "笑", "www", "ww", "って", "だと", "みたい", "ほんと", "ほんとに",
+  "これ", "それ", "あれ", "どれ", "この", "その", "あの", "どの", "ここ", "そこ", "あそこ", "どこ",
+  "こう", "そう", "どう", "こんな", "そんな", "あんな", "どんな",
+  "はい", "うん", "ううん", "ええ", "いや", "いえ", "まあ", "えー", "あー", "おー", "へー", "ふーん",
+  "です", "ます", "でし", "まし", "でした", "ました", "ません", "だっ", "だった", "でしょ", "でしょう", "だろ", "だろう",
+  "した", "して", "しよ", "しよう", "する", "しな", "しない", "され", "させ", "できる", "でき",
+  "いる", "いた", "いて", "ある", "あっ", "あった", "なる", "なっ", "なった", "なり", "いう", "いっ", "言う",
+  "ない", "なく", "なかっ", "たい", "たく", "れる", "られる", "せる", "てる", "てた", "とく", "ちゃう", "ちゃっ",
+  "から", "まで", "より", "ので", "のに", "けど", "けれど", "けども", "でも", "だから", "そして", "それで", "じゃあ",
+  "って", "とか", "など", "だけ", "しか", "ばかり", "くらい", "ぐらい", "ほど", "なら", "たら", "だら",
+  "また", "もう", "まだ", "ずっと", "ちょっと", "なんか", "なに", "なん", "あと", "ほんと", "ほんとに", "けっこう",
+  "じゃ", "じゃん", "じゃない", "だね", "だよ", "だよね", "よね", "かな", "かも", "もの", "こと", "よう", "ため",
+  "みたい", "っぽい", "だと", "とき", "ところ", "今日", "明日", "自分",
+  "さま", "さん", "ちゃん", "くん", "しょ", "でしょ", "にし", "には", "とは", "では", "にも", "どうも", "おれ", "わたし", "あなた", "なんで", "なんだ", "あれば",
+  "笑", "www", "ww",
 ]);
+
+type WordSegmenter = { segment(input: string): Iterable<{ segment: string; isWordLike?: boolean }> };
+let segmenter: WordSegmenter | null | undefined;
+function getSegmenter(): WordSegmenter | null {
+  if (segmenter === undefined) {
+    try {
+      const I = Intl as unknown as { Segmenter?: new (l: string, o: { granularity: string }) => WordSegmenter };
+      segmenter = I.Segmenter ? new I.Segmenter("ja", { granularity: "word" }) : null;
+    } catch {
+      segmenter = null;
+    }
+  }
+  return segmenter;
+}
+
+/**
+ * 1つのメッセージを言葉に分ける。
+ * カタカナ・英数字はかたまりのまま1語（辞書にない「ロリ」なども正しく1語になる）、
+ * 漢字とひらがなのかたまりは、ブラウザの日本語の単語分割でさらに分ける。
+ */
+export function tokenize(text: string): string[] {
+  const out: string[] = [];
+  const norm = text.normalize("NFKC").toLowerCase();
+  const runs = norm.match(SCRIPT_RUN_RE);
+  if (!runs) return out;
+  const seg = getSegmenter();
+  for (const run of runs) {
+    const c = run.charCodeAt(0);
+    const isKana = c >= 0x30a1 && c <= 0x30fc;
+    const isLatin = (c >= 0x61 && c <= 0x7a) || (c >= 0x30 && c <= 0x39);
+    if (isKana || isLatin || !seg || run.length <= 2) {
+      out.push(run);
+    } else {
+      // 漢字とひらがなのかたまりは、ブラウザの日本語の単語分割で分ける（「好き」「最高」など）。
+      // 漢字のすぐ後ろで切れたひらがな（「会|いたい」の「いたい」など送りがな・活用の切れ端）は数えない
+      let prevEndsKanji = false;
+      for (const p of seg.segment(run)) {
+        const w = p.segment;
+        const last = w.charCodeAt(w.length - 1);
+        const allHira = /^[ぁ-ゖー]+$/.test(w);
+        if (p.isWordLike !== false && !(allHira && prevEndsKanji)) out.push(w);
+        prevEndsKanji = (last >= 0x4e00 && last <= 0x9fff) || last === 0x3005;
+      }
+    }
+  }
+  // 「ロリロリ」のような繰り返しは1語（「ロリ」）として数える
+  for (let i = 0; i < out.length; i++) {
+    const m = /^(.{2,}?)\1+$/u.exec(out[i]);
+    if (m) out[i] = m[1];
+  }
+  return out;
+}
+
+export function isCountableWord(w: string): boolean {
+  if (Array.from(w).length < 2) return false;
+  if (STOP_WORDS.has(w)) return false;
+  if (/^[0-9]+$/.test(w)) return false;
+  if (/^(.)\1+$/u.test(w)) return false; // 「ーー」「ww」など同じ文字の繰り返し
+  if (/^ー/.test(w)) return false;
+  return true;
+}
 
 export function rangeStartDate(RAW: DayStat[], key: RangeKey): string {
   const opt = RANGE_OPTIONS.find((r) => r.key === key) || RANGE_OPTIONS[0];
@@ -252,12 +338,9 @@ export function wordRanking(messages: Message[], limit = 12): { word: string; co
   const counts = new Map<string, number>();
   for (const m of messages) {
     if (m.type !== "text") continue;
-    const words = m.content.match(WORD_RE);
-    if (!words) continue;
-    for (const w of words) {
-      const key = w.toLowerCase();
-      if (STOP_WORDS.has(w) || /^\d+$/.test(w)) continue;
-      counts.set(key, (counts.get(key) || 0) + 1);
+    for (const w of tokenize(textForCounting(m.content))) {
+      if (!isCountableWord(w)) continue;
+      counts.set(w, (counts.get(w) || 0) + 1);
     }
   }
   return [...counts.entries()]
@@ -270,7 +353,7 @@ export function emojiRanking(messages: Message[], limit = 12): { emoji: string; 
   const counts = new Map<string, number>();
   for (const m of messages) {
     if (m.type !== "text") continue;
-    const found = m.content.match(EMOJI_RE);
+    const found = textForCounting(m.content).match(EMOJI_RE);
     if (!found) continue;
     for (const e of found) counts.set(e, (counts.get(e) || 0) + 1);
   }
@@ -317,7 +400,7 @@ export function emojiTrend(messages: Message[]): { ym: string; label: string; co
   const map = new Map<string, number>();
   for (const m of messages) {
     if (m.type !== "text") continue;
-    const found = m.content.match(EMOJI_RE);
+    const found = textForCounting(m.content).match(EMOJI_RE);
     if (!found) continue;
     const ym = m.date.slice(0, 7);
     map.set(ym, (map.get(ym) || 0) + found.length);

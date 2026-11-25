@@ -81,9 +81,14 @@ export function useChatStats(chat: ParsedChat, rangeKey: RangeKey) {
       sliced.map((d) => ({
         label: `${parseInt(d.date.slice(5, 7), 10)}/${parseInt(d.date.slice(8, 10), 10)}`,
         value: d.total,
+        title: `${parseInt(d.date.slice(5, 7), 10)}月${parseInt(d.date.slice(8, 10), 10)}日（${"日月火水木金土"[new Date(`${d.date}T00:00:00`).getDay()]}）`,
         detail: `前日比 ${d.dayDelta >= 0 ? "+" : ""}${d.dayDelta}`,
+        rows: [
+          { label: chat.names.a, value: `${d.a}`, color: "var(--a)" },
+          { label: chat.names.b, value: `${d.b}`, color: "var(--b)" },
+        ],
       })),
-    [sliced],
+    [sliced, chat.names],
   );
 
   return {
