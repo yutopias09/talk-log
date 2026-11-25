@@ -12,7 +12,10 @@ export type ViewKey =
   | "monthly"
   | "compare"
   | "share"
-  | "replay";
+  | "replay"
+  | "memories"
+  | "words"
+  | "calls";
 
 export interface ViewMeta {
   key: ViewKey;
@@ -55,6 +58,30 @@ export const VIEWS: ViewMeta[] = [
     title: "内訳・ランキング",
     description: "メッセージの種類、よく使う言葉・絵文字、話題の傾向。",
     group: "分析",
+  },
+  {
+    key: "words",
+    label: "ことば",
+    icon: "quote",
+    title: "ことば",
+    description: "言葉の推移、ふたりの口ぐせ、共有したリンク。",
+    group: "分析",
+  },
+  {
+    key: "calls",
+    label: "通話",
+    icon: "phone",
+    title: "通話の記録",
+    description: "通話した回数と時間、長電話ランキング。",
+    group: "分析",
+  },
+  {
+    key: "memories",
+    label: "思い出",
+    icon: "gift",
+    title: "思い出",
+    description: "○年前の今日、はじめての記録、記念日、年ごとのまとめ。",
+    group: "ふり返り",
   },
   {
     key: "history",

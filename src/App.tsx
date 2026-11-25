@@ -1,6 +1,7 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Icon } from "./components/Icon";
 import { PersonChip, RangePicker } from "./components/ui";
+import { useGlassSlider } from "./components/GlassSlider";
 import { parseLineChat } from "./lib/parse";
 import type { ParsedChat, RangeKey } from "./lib/types";
 import { useChatStats, useStoredState, useTheme } from "./lib/useStats";
@@ -19,6 +20,10 @@ import { MonthlyView } from "./views/MonthlyView";
 import { CompareView } from "./views/CompareView";
 import { ShareView } from "./views/ShareView";
 import { ReplayView } from "./views/ReplayView";
+import { MemoriesView } from "./views/MemoriesView";
+import { WordsView } from "./views/WordsView";
+import { CallsView } from "./views/CallsView";
+import { clearLastChat, loadLastChatMeta, loadLastChatText, saveLastChat, type SavedChatMeta } from "./lib/storage";
 
 const RANGE_VIEWS: ViewKey[] = ["overview", "detail", "hourly", "breakdown", "history", "search"];
 
@@ -41,21 +46,52 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [theme, toggleTheme] = useTheme();
+  // 前回のトークをこの端末に保存して、次回すぐ開けるようにする
+  const [remember, setRemember] = useStoredState<boolean>("talklog-remember", true);
+  const [saved, setSaved] = useState<SavedChatMeta | null>(null);
+  const refreshSaved = useCallback(() => {
+    loadLastChatMeta().then(setSaved);
+  }, []);
+  useEffect(() => {
+    refreshSaved();
+  }, [refreshSaved]);
 
-  const loadText = useCallback((text: string, name?: string) => {
+  const loadText = useCallback(
+    (text: string, name?: string, persist = true) => {
+      setError(null);
+      try {
+        const parsed = parseLineChat(text);
+        if (!parsed) {
+          setError("メッセージが見つかりませんでした。LINEの「トーク履歴を送信」で書き出した .txt を選んでください（例：「2025/12/06(土)」または「2025.12.06 土曜日」の日付行が必要です）。");
+          return;
+        }
+        setChat(parsed);
+        setFileName(name ?? null);
+        if (persist && remember && name !== "サンプルデータ") {
+          saveLastChat(text, name || parsed.chatTitle || "トーク履歴").then(refreshSaved);
+        }
+      } catch {
+        setError("ファイルの読み込みに失敗しました。もう一度お試しください。");
+      }
+    },
+    [remember, refreshSaved],
+  );
+
+  const openSaved = useCallback(async () => {
+    setLoading(true);
     setError(null);
     try {
-      const parsed = parseLineChat(text);
-      if (!parsed) {
-        setError("メッセージが見つかりませんでした。LINEの「トーク履歴を送信」で書き出した .txt を選んでください（例：「2025/12/06(土)」または「2025.12.06 土曜日」の日付行が必要です）。");
-        return;
-      }
-      setChat(parsed);
-      setFileName(name ?? null);
-    } catch {
-      setError("ファイルの読み込みに失敗しました。もう一度お試しください。");
+      const text = await loadLastChatText();
+      if (text) loadText(text, saved?.name, false);
+      else setError("保存したトークが見つかりませんでした。もう一度ファイルを選んでください。");
+    } finally {
+      setLoading(false);
     }
-  }, []);
+  }, [loadText, saved]);
+
+  const clearSaved = useCallback(() => {
+    clearLastChat().then(refreshSaved);
+  }, [refreshSaved]);
 
   const loadFile = useCallback(
     async (file: File) => {
@@ -82,6 +118,14 @@ export default function App() {
         loading={loading}
         theme={theme}
         onToggleTheme={toggleTheme}
+        saved={saved}
+        onOpenSaved={openSaved}
+        onClearSaved={clearSaved}
+        remember={remember}
+        onRememberChange={(v) => {
+          setRemember(v);
+          if (!v) clearSaved();
+        }}
       />
     );
   }
@@ -97,6 +141,7 @@ export default function App() {
         setChat(null);
         setFileName(null);
         setError(null);
+        refreshSaved();
       }}
     />
   );
@@ -140,6 +185,12 @@ function Analyzer({ chat, fileName, theme, onToggleTheme, onNewFile, onReset }: 
     setMenuOpen(false);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }, []);
+
+  // 下のタブバー：選択中のタブにクリアガラスの枠を敷き、なぞって切り替えられるようにする
+  const navGlass = useGlassSlider<ViewKey>({
+    value: MOBILE_VIEWS.includes(view) ? view : null,
+    onSelect: go,
+  });
 
   const totalDays = chat.RAW.length;
   const grouped = useMemo(
@@ -264,7 +315,9 @@ function Analyzer({ chat, fileName, theme, onToggleTheme, onNewFile, onReset }: 
           </div>
 
           <div key={view} className="fade-in">
-            {view === "overview" && <OverviewView chat={chat} stats={stats} rangeKey={rangeKey} setRangeKey={setRangeKey} />}
+            {view === "overview" && (
+              <OverviewView chat={chat} stats={stats} rangeKey={rangeKey} setRangeKey={setRangeKey} onGo={go} />
+            )}
             {view === "detail" && <DetailView chat={chat} stats={stats} rangeKey={rangeKey} setRangeKey={setRangeKey} />}
             {view === "history" && <HistoryView chat={chat} stats={stats} rangeKey={rangeKey} setRangeKey={setRangeKey} />}
             {view === "streak" && <StreakView chat={chat} stats={stats} />}
@@ -285,19 +338,29 @@ function Analyzer({ chat, fileName, theme, onToggleTheme, onNewFile, onReset }: 
             )}
             {view === "share" && <ShareView chat={chat} stats={stats} />}
             {view === "replay" && <ReplayView chat={chat} stats={stats} />}
+            {view === "memories" && <MemoriesView chat={chat} stats={stats} />}
+            {view === "words" && <WordsView chat={chat} stats={stats} />}
+            {view === "calls" && <CallsView chat={chat} stats={stats} />}
           </div>
         </div>
       </main>
 
-      <nav className="bottom-nav" aria-label="モバイルナビゲーション">
+      <nav
+        ref={navGlass.barRef}
+        onPointerDown={navGlass.onPointerDown}
+        className="bottom-nav glass-bar"
+        aria-label="モバイルナビゲーション"
+      >
+        <span ref={navGlass.pillRef} className="glass-pill" aria-hidden="true" />
         {MOBILE_VIEWS.map((key) => {
           const v = VIEW_MAP[key];
           return (
             <button
               key={key}
               type="button"
+              data-glass-key={key}
               aria-current={view === key ? "page" : undefined}
-              onClick={() => go(key)}
+              onClick={() => navGlass.onTap(key)}
             >
               <Icon name={v.icon} size={19} />
               {v.label}
