@@ -59,6 +59,7 @@ export function HourlyView({ chat, stats }: ViewProps) {
         <BarSeries
           values={hourly}
           labels={Array.from({ length: 24 }, (_, i) => `${i}時`)}
+          titles={Array.from({ length: 24 }, (_, i) => `${i}時台`)}
           height={230}
           colorFor={colorForHour}
           ariaLabel="時間帯別メッセージ数"

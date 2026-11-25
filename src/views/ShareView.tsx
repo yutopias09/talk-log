@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "../components/Icon";
+import { StoryPlayer } from "../components/StoryPlayer";
+import { buildStorySlides, type StorySlide } from "../lib/story";
+import { playTick, vibrate } from "../lib/feedback";
 import { Card, CardHead, Segmented, StatRow } from "../components/ui";
 import { emojiRanking, wordRanking } from "../lib/analytics";
 import { fmtDateJP, fmtInt, fmtNum, fmtRange } from "../lib/format";
@@ -23,6 +26,13 @@ export function ShareView({ chat, stats }: BaseViewProps) {
   const [theme, setTheme] = useState<CardThemeKey>("midnight");
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // ストーリーは「ストーリーで振り返る」を押したときに初めて作る
+  const [story, setStory] = useState<StorySlide[] | null>(null);
+  const openStory = () => {
+    playTick(659.25, 0.05);
+    vibrate(7);
+    setStory(buildStorySlides(chat, { longest: longestStreak, current: currentStreak }));
+  };
 
   const words = useMemo(() => wordRanking(messagesInRange, 1), [messagesInRange]);
   const emojis = useMemo(() => emojiRanking(messagesInRange, 1), [messagesInRange]);
@@ -100,6 +110,15 @@ export function ShareView({ chat, stats }: BaseViewProps) {
 
   return (
     <div className="stack">
+      {story && story.length > 0 && <StoryPlayer slides={story} onClose={() => setStory(null)} />}
+      <button type="button" className="story-launch" onClick={openStory}>
+        <Icon name="play" size={22} />
+        <span>
+          ストーリーで振り返る
+          <small>ふたりのトークを、全画面のスライドでふり返ります</small>
+        </span>
+        <span aria-hidden="true">✨</span>
+      </button>
       <div className="share-layout">
         <Card className="share-preview-card">
           <CardHead

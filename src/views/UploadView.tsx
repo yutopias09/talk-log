@@ -2,6 +2,8 @@ import { useCallback, useRef, useState } from "react";
 import type { DragEvent as ReactDragEvent } from "react";
 import { Icon } from "../components/Icon";
 import { buildSampleChat } from "../lib/sample";
+import { shouldSuggestHomeScreen } from "../lib/pwa";
+import type { SavedChatMeta } from "../lib/storage";
 
 interface UploadViewProps {
   onFile: (file: File) => void;
@@ -10,9 +12,32 @@ interface UploadViewProps {
   loading: boolean;
   theme: "light" | "dark";
   onToggleTheme: () => void;
+  saved: SavedChatMeta | null;
+  onOpenSaved: () => void;
+  onClearSaved: () => void;
+  remember: boolean;
+  onRememberChange: (v: boolean) => void;
 }
 
-export function UploadView({ onFile, onSample, error, loading, theme, onToggleTheme }: UploadViewProps) {
+function fmtSavedAt(ms: number): string {
+  const d = new Date(ms);
+  return `${d.getMonth() + 1}月${d.getDate()}日 ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+export function UploadView({
+  onFile,
+  onSample,
+  error,
+  loading,
+  theme,
+  onToggleTheme,
+  saved,
+  onOpenSaved,
+  onClearSaved,
+  remember,
+  onRememberChange,
+}: UploadViewProps) {
+  const [suggestHome] = useState(() => shouldSuggestHomeScreen());
   const [dragging, setDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -60,6 +85,27 @@ export function UploadView({ onFile, onSample, error, loading, theme, onToggleTh
           <Icon name={theme === "dark" ? "sun" : "moon"} size={17} />
         </button>
       </header>
+
+      {saved && (
+        <div className="resume-card resume-top">
+          <div className="resume-text">
+            <span className="resume-kicker">前回のトーク</span>
+            <strong>{saved.name}</strong>
+            <span className="small muted">{fmtSavedAt(saved.savedAt)} にこの端末へ保存</span>
+          </div>
+          <div className="resume-actions">
+            <button type="button" className="btn btn-accent btn-lg" onClick={onOpenSaved} disabled={loading}>
+              <Icon name="play" size={14} />
+              すぐに開く
+            </button>
+            <button type="button" className="btn btn-ghost" onClick={onClearSaved} disabled={loading} title="この端末に保存したトークを削除">
+              <Icon name="trash" size={15} />
+              削除
+            </button>
+          </div>
+        </div>
+      )}
+
 
       <main className="upload-main">
         <section>
@@ -139,15 +185,29 @@ export function UploadView({ onFile, onSample, error, loading, theme, onToggleTh
               }}
             />
 
+            <label className="remember-toggle">
+              <input type="checkbox" checked={remember} onChange={(e) => onRememberChange(e.target.checked)} />
+              <span>この端末に保存して、次回はファイルを選ばずにすぐ開く</span>
+            </label>
+
             <div className="privacy-note">
               <Icon name="check" size={14} strokeWidth={2.6} style={{ flex: "none", marginTop: 1 }} />
               <span>
-                ファイルはブラウザの中だけで解析されます。サーバーへの送信・保存は一切ありません。
+                ファイルはブラウザの中だけで解析されます。サーバーへの送信は一切ありません。保存する場合も、この端末の中だけです。
               </span>
             </div>
 
             {error && <div className="upload-error">{error}</div>}
           </div>
+
+          {suggestHome && (
+            <div className="home-tip">
+              <Icon name="info" size={15} style={{ flex: "none", marginTop: 1 }} />
+              <span>
+                Safariの共有ボタン →「ホーム画面に追加」で、アプリのように開けます。
+              </span>
+            </div>
+          )}
 
           <div className="steps">
             <div className="step">

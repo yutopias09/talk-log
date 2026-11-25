@@ -4,9 +4,14 @@ import { Icon } from "../components/Icon";
 import { Card, CardHead, SplitBar, StatRow, TrendBadge } from "../components/ui";
 import { hotConversation, WEEKDAY_LABELS } from "../lib/analytics";
 import { fmtDateJP, fmtInt, fmtNum, fmtRange } from "../lib/format";
+import { localToday, onThisDay } from "../lib/insights";
+import type { ViewKey } from "../nav";
 import type { ViewProps } from "./types";
 
-export function OverviewView({ chat, stats }: ViewProps) {
+export function OverviewView({ chat, stats, onGo }: ViewProps & { onGo?: (v: ViewKey) => void }) {
+  // ○年前の今日：あれば概要のいちばん上でお知らせ
+  const memory = useMemo(() => onThisDay(chat, localToday())[0] || null, [chat]);
+  const memoryPreview = memory?.messages.find((m) => m.type === "text" && !m.content.startsWith("☎"));
   const { summary, sliced, trend, weekday, hourly, peakHour, topWeekday, weekly } = stats;
   const hot = useMemo(
     () => hotConversation(stats.messagesInRange, stats.startDate),
@@ -19,6 +24,24 @@ export function OverviewView({ chat, stats }: ViewProps) {
 
   return (
     <div className="stack">
+      {memory && onGo && (
+        <button type="button" className="memory-banner" onClick={() => onGo("memories")}>
+          <span className="memory-banner-emoji" aria-hidden="true">
+            🎁
+          </span>
+          <span className="memory-banner-text">
+            <strong>
+              {memory.yearsAgo}年前の今日、{fmtInt(memory.total)}件のやりとりがありました
+            </strong>
+            {memoryPreview && (
+              <span className="small">
+                {memoryPreview.sender}「{memoryPreview.content.length > 34 ? `${memoryPreview.content.slice(0, 34)}…` : memoryPreview.content}」
+              </span>
+            )}
+          </span>
+          <Icon name="chevron-right" size={18} />
+        </button>
+      )}
       <Card className="overview-hero">
         <div>
           <div className="kpi-label">
@@ -121,6 +144,7 @@ export function OverviewView({ chat, stats }: ViewProps) {
           <BarSeries
             values={weekday}
             labels={WEEKDAY_LABELS}
+            titles={WEEKDAY_LABELS.map((w) => `${w}曜日`)}
             height={180}
             colorFor={(i) => (i === topWeekday.index ? "var(--a)" : "color-mix(in srgb, var(--a) 40%, var(--surface))")}
             ariaLabel="曜日別メッセージ数"
@@ -131,6 +155,7 @@ export function OverviewView({ chat, stats }: ViewProps) {
           <BarSeries
             values={hourly}
             labels={Array.from({ length: 24 }, (_, i) => `${i}`)}
+            titles={Array.from({ length: 24 }, (_, i) => `${i}時台`)}
             height={180}
             colorFor={(i) => (i === peakHour.hour ? "var(--b)" : "var(--a)")}
             ariaLabel="時間帯別メッセージ数"

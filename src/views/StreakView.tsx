@@ -1,13 +1,26 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Icon } from "../components/Icon";
 import { Card, CardHead, Kpi, StatRow } from "../components/ui";
 import { milestones } from "../lib/analytics";
 import { fmtDateJP, fmtInt } from "../lib/format";
+import { playCelebration } from "../lib/feedback";
 import type { BaseViewProps } from "./types";
+
+const CONFETTI = ["#FF7CC8", "#FFD166", "#7CF2D0", "#5B9DFF", "#B18CFF"];
+
+function localDate(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
 
 export function StreakView({ chat, stats }: BaseViewProps) {
   const { currentStreak, longestStreak, topStreaks, streaks } = stats;
   const info = useMemo(() => milestones(chat.RAW), [chat.RAW]);
+  // 記念日の日に開いたら自動でお祝い。ボタンでいつでもお祝いできる
+  const [party, setParty] = useState(() => (info.isExact || info.anniversaryYears ? 1 : 0));
+  const celebrate = () => {
+    setParty((n) => n + 1);
+    playCelebration();
+  };
 
   const last60 = useMemo(() => {
     const set = new Set(chat.RAW.map((d) => d.date));
@@ -119,7 +132,7 @@ export function StreakView({ chat, stats }: BaseViewProps) {
                       {m.label}
                     </span>
                   }
-                  value={m.date ? fmtDateJP(m.date) : m.dateObj ? fmtDateJP(m.dateObj.toISOString().slice(0, 10)) : "—"}
+                  value={m.date ? fmtDateJP(m.date) : m.dateObj ? fmtDateJP(localDate(m.dateObj)) : "—"}
                 />
               ))}
             </div>
@@ -128,8 +141,36 @@ export function StreakView({ chat, stats }: BaseViewProps) {
         </div>
 
         <div className="stack">
-          <Card>
-            <CardHead title="次の目標" sub={`累計 ${fmtInt(info.distinctDays)} 日`} icon="zap" />
+          <Card style={{ position: "relative", overflow: "hidden" }}>
+            {party > 0 && (
+              <div className="celebrate" key={party} aria-hidden="true">
+                {Array.from({ length: 28 }, (_, i) => (
+                  <i
+                    key={i}
+                    style={{
+                      left: `${(i * 37) % 100}%`,
+                      background: CONFETTI[i % CONFETTI.length],
+                      animationDelay: `${(i % 7) * 0.08}s`,
+                    }}
+                  />
+                ))}
+              </div>
+            )}
+            <CardHead
+              title="次の目標"
+              sub={`累計 ${fmtInt(info.distinctDays)} 日`}
+              icon="zap"
+              right={
+                <button type="button" className="btn btn-ghost" onClick={celebrate}>
+                  🎊 お祝いする
+                </button>
+              }
+            />
+            {info.anniversaryYears && (
+              <p className="small" style={{ marginBottom: 8, fontWeight: 700, color: "var(--pos)" }}>
+                🎂 トークを始めて {info.anniversaryYears} 周年の記念日です！
+              </p>
+            )}
             <div className="spread" style={{ alignItems: "flex-end" }}>
               <div className="kpi-value" style={{ fontSize: 28 }}>
                 {fmtInt(info.nextTarget)}

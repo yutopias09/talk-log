@@ -42,6 +42,8 @@ export function DetailView({ chat, stats }: ViewProps) {
       sliced.map((d) => ({
         label: `${parseInt(d.date.slice(5, 7), 10)}/${parseInt(d.date.slice(8, 10), 10)}`,
         value: d.chars || 0,
+        title: `${parseInt(d.date.slice(5, 7), 10)}月${parseInt(d.date.slice(8, 10), 10)}日`,
+        detail: d.total ? `1件あたり ${Math.round((d.chars || 0) / d.total)}字` : undefined,
       })),
     [sliced],
   );
@@ -129,7 +131,7 @@ export function DetailView({ chat, stats }: ViewProps) {
       <div className="grid grid-main">
         <Card>
           <CardHead title="文字数の推移" sub="1日に打った文字の量" icon="file" />
-          <AreaTrend data={charsTrend} color="var(--accent)" height={210} />
+          <AreaTrend data={charsTrend} color="var(--accent)" height={210} unit="字" />
         </Card>
 
         <Card>
