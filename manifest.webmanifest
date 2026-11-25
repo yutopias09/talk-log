@@ -1,0 +1,16 @@
+{
+  "name": "トーク分析",
+  "short_name": "トーク分析",
+  "description": "LINEのトーク履歴を読み込んで、ふたりの会話をやさしく分析します。データは端末の外に出ません。",
+  "lang": "ja",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0B0D12",
+  "theme_color": "#0B0D12",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
